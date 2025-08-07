@@ -9,42 +9,44 @@ const props = defineProps({
   }
 });
 
-// 选择的操作系统
 const selectedOS = ref('windows');
+const selectedMirrors = ref([]);
 
-// 获取可用的镜像（状态为正常的镜像）
 const availableMirrors = computed(() => {
-  return props.mirrors.filter(mirror => 
-    mirror.success === true && 
-    (mirror.responseTime < 1000 || mirror.responseTime >= 1000) // 包括正常和缓慢的镜像
-  ).sort((a, b) => a.responseTime - b.responseTime); // 按响应时间排序
+  return props.mirrors
+    .filter(mirror => mirror.success === true)
+    .sort((a, b) => {
+      const performanceOrder = { 'excellent': 0, 'good': 1, 'poor': 2 };
+      const aOrder = performanceOrder[a.performance] || 3;
+      const bOrder = performanceOrder[b.performance] || 3;
+      if (aOrder !== bOrder) return aOrder - bOrder;
+      return (a.responseTime || Infinity) - (b.responseTime || Infinity);
+    });
 });
 
-// 选择的镜像
-const selectedMirror = ref(null);
-
-// 当有可用镜像时，默认选择第一个（响应最快的）
-const initSelectedMirror = () => {
-  if (availableMirrors.value.length > 0 && !selectedMirror.value) {
-    selectedMirror.value = availableMirrors.value[0];
+const initSelectedMirrors = () => {
+  if (availableMirrors.value.length > 0 && selectedMirrors.value.length === 0) {
+    selectedMirrors.value = [availableMirrors.value[0]];
   }
 };
 
-// 监听可用镜像变化
 computed(() => {
-  initSelectedMirror();
+  initSelectedMirrors();
   return availableMirrors.value;
 });
 
-// 选择镜像
-const selectMirror = (mirror) => {
-  selectedMirror.value = mirror;
+const toggleMirror = (mirror) => {
+  const index = selectedMirrors.value.findIndex(m => m.url === mirror.url);
+  if (index >= 0) {
+    selectedMirrors.value.splice(index, 1);
+  } else {
+    selectedMirrors.value.push(mirror);
+  }
 };
 
-// 复制配置到剪贴板
 const copyConfig = () => {
-  if (!selectedMirror.value) {
-    message.warning('请先选择一个镜像');
+  if (selectedMirrors.value.length === 0) {
+    message.warning('请至少选择一个镜像');
     return;
   }
   
@@ -58,26 +60,25 @@ const copyConfig = () => {
     });
 };
 
-// 根据选择的操作系统和镜像生成配置文本
 const getConfigText = () => {
-  if (!selectedMirror.value) return '';
+  if (selectedMirrors.value.length === 0) return '';
   
-  const mirrorUrl = selectedMirror.value.url;
+  const mirrorUrls = selectedMirrors.value.map(mirror => mirror.url);
   
   switch (selectedOS.value) {
     case 'windows':
-      return getWindowsConfig(mirrorUrl);
+      return getWindowsConfig(mirrorUrls);
     case 'mac':
-      return getMacConfig(mirrorUrl);
+      return getMacConfig(mirrorUrls);
     case 'linux':
-      return getLinuxConfig(mirrorUrl);
+      return getLinuxConfig(mirrorUrls);
     default:
       return '';
   }
 };
 
-// Windows 配置指南
-const getWindowsConfig = (mirrorUrl) => {
+const getWindowsConfig = (mirrorUrls) => {
+  const urlsJson = JSON.stringify(mirrorUrls, null, 2);
   return `# Windows 下配置 Docker 镜像加速
 
 1. 右键点击桌面右下角 Docker 图标，选择 "Settings"。
@@ -86,9 +87,7 @@ const getWindowsConfig = (mirrorUrl) => {
 4. 添加镜像地址：
 
 {
-  "registry-mirrors": [
-    "${mirrorUrl}"
-  ]
+  "registry-mirrors": ${urlsJson}
 }
 
 5. 点击 "Apply & Restart" 按钮重启 Docker。
@@ -97,8 +96,8 @@ const getWindowsConfig = (mirrorUrl) => {
 `;
 };
 
-// Mac 配置指南
-const getMacConfig = (mirrorUrl) => {
+const getMacConfig = (mirrorUrls) => {
+  const urlsJson = JSON.stringify(mirrorUrls, null, 2);
   return `# macOS 下配置 Docker 镜像加速
 
 1. 点击桌面顶部状态栏的 Docker 图标，选择 "Preferences"。
@@ -107,26 +106,24 @@ const getMacConfig = (mirrorUrl) => {
 4. 添加镜像地址：
 
 {
-  "registry-mirrors": [
-    "${mirrorUrl}"
-  ]
+  "registry-mirrors": ${urlsJson}
 }
 
-5. 点击 "Apply & Restart" 按钮重启 Docker。
+5. 点击 "Apply & Restart" 按钮重启动 Docker。
 6. 重启后可以通过命令验证配置是否生效：
    docker info | grep "Registry Mirrors"
 `;
 };
 
-// Linux 配置指南
-const getLinuxConfig = (mirrorUrl) => {
+const getLinuxConfig = (mirrorUrls) => {
+  const urlsJson = JSON.stringify(mirrorUrls, null, 2);
   return `# Linux 下配置 Docker 镜像加速
 
 1. 创建或修改 Docker 守护进程配置文件：
    sudo mkdir -p /etc/docker
    sudo tee /etc/docker/daemon.json <<-'EOF'
    {
-     "registry-mirrors": ["${mirrorUrl}"]
+     "registry-mirrors": ${urlsJson}
    }
    EOF
 
@@ -183,10 +180,10 @@ const getLinuxConfig = (mirrorUrl) => {
         
         <!-- 镜像选择 -->
         <div class="cyber-mirror-selector">
-          <div class="cyber-section-title">选择镜像源 (按响应时间排序)</div>
+          <div class="cyber-section-title">选择镜像源 (按性能排序，可多选)</div>
           
           <div v-if="availableMirrors.length === 0" class="cyber-no-mirrors">
-            <span class="cyber-warning-icon">⚠️</span> 没有可用的镜像，请先检测镜像可用性
+            <span class="cyber-warning-icon">�સ</span> 没有可用的镜像，请先检测镜像可用性
           </div>
           
           <div v-else class="cyber-mirror-list">
@@ -195,48 +192,41 @@ const getLinuxConfig = (mirrorUrl) => {
               :key="mirror.url"
               class="cyber-mirror-item"
               :class="{ 
-                'active': selectedMirror && selectedMirror.url === mirror.url,
-                'fast': mirror.responseTime < 500,
-                'normal': mirror.responseTime >= 500 && mirror.responseTime < 1000,
-                'slow': mirror.responseTime >= 1000
+                'active': selectedMirrors.some(m => m.url === mirror.url),
+                'excellent': mirror.performance === 'excellent',
+                'good': mirror.performance === 'good',
+                'poor': mirror.performance === 'poor'
               }"
-              @click="selectMirror(mirror)"
+              @click="toggleMirror(mirror)"
             >
               <div class="cyber-mirror-info">
-                <div class="cyber-mirror-name">{{ mirror.name }}</div>
-                <div class="cyber-mirror-provider">{{ mirror.provider }}</div>
+                <div class="cyber-mirror-name">{{ mirror.name || '未知' }}</div>
+                <div class="cyber-mirror-provider">{{ mirror.provider || '未知' }}</div>
               </div>
               <div class="cyber-mirror-stats">
                 <div class="cyber-mirror-response">
-                  {{ mirror.responseTime }}ms
+                  {{ mirror.responseTime ? `${mirror.responseTime}ms` : '-' }}
                 </div>
-                <div class="cyber-mirror-status">
-                  <span v-if="mirror.responseTime < 500" class="cyber-status-fast">极速</span>
-                  <span v-else-if="mirror.responseTime < 1000" class="cyber-status-normal">正常</span>
-                  <span v-else class="cyber-status-slow">缓慢</span>
+                <div :class="`cyber-status-${mirror.performance}`">
+                  {{ mirror.performance ? mirror.performance.toUpperCase() : '未知' }}
                 </div>
               </div>
             </div>
           </div>
-        </div>
-        
-        <!-- 配置指南 -->
-        <div class="cyber-config-instructions">
-          <div class="cyber-section-title">配置指南</div>
           
-          <div v-if="!selectedMirror" class="cyber-no-selection">
-            <span class="cyber-warning-icon">ℹ️</span> 请先选择一个镜像源
-          </div>
-          
-          <div v-else class="cyber-instructions">
+          <div v-if="selectedMirrors.length > 0" class="cyber-config-instructions">
             <div class="cyber-selected-mirror">
               <span class="cyber-label">已选镜像:</span>
-              <span class="cyber-value">{{ selectedMirror.name }} ({{ selectedMirror.provider }})</span>
+              <span class="cyber-value">
+                {{ selectedMirrors.map(m => `${m.name} (${m.provider})`).join(', ') }}
+              </span>
             </div>
             
             <div class="cyber-mirror-url">
               <span class="cyber-label">镜像地址:</span>
-              <span class="cyber-value">{{ selectedMirror.url }}</span>
+              <span class="cyber-value">
+                {{ selectedMirrors.map(m => m.url).join(', ') }}
+              </span>
             </div>
             
             <div class="cyber-config-code">
@@ -249,6 +239,10 @@ const getLinuxConfig = (mirrorUrl) => {
               </a-button>
             </div>
           </div>
+          
+          <div v-else class="cyber-no-selection">
+            <span class="cyber-warning-icon">⚠️</span> 请至少选择一个镜像
+          </div>
         </div>
       </div>
     </div>
@@ -256,6 +250,7 @@ const getLinuxConfig = (mirrorUrl) => {
 </template>
 
 <style scoped>
+/* 样式保持不变，复用之前的样式 */
 .cyber-config-guide {
   margin-top: 2rem;
 }
@@ -284,7 +279,6 @@ const getLinuxConfig = (mirrorUrl) => {
   background: linear-gradient(90deg, var(--primary-color), transparent);
 }
 
-/* 操作系统选择器 */
 .cyber-os-selector {
   margin-bottom: 2rem;
 }
@@ -320,7 +314,6 @@ const getLinuxConfig = (mirrorUrl) => {
   font-weight: 500;
 }
 
-/* 镜像选择器 */
 .cyber-mirror-selector {
   margin-bottom: 2rem;
 }
@@ -384,16 +377,16 @@ const getLinuxConfig = (mirrorUrl) => {
   border-color: var(--primary-color);
 }
 
-.cyber-mirror-item.fast {
-  border-left: 3px solid var(--success-color);
+.cyber-mirror-item.excellent {
+  border-left: 3px solid #0cff70;
 }
 
-.cyber-mirror-item.normal {
-  border-left: 3px solid var(--primary-color);
+.cyber-mirror-item.good {
+  border-left: 3px solid #00b8d4;
 }
 
-.cyber-mirror-item.slow {
-  border-left: 3px solid var(--warning-color);
+.cyber-mirror-item.poor {
+  border-left: 3px solid #ffcc00;
 }
 
 .cyber-mirror-name {
@@ -416,25 +409,24 @@ const getLinuxConfig = (mirrorUrl) => {
   margin-bottom: 0.3rem;
 }
 
-.cyber-status-fast {
-  color: var(--success-color);
+.cyber-status-excellent {
+  color: #0cff70;
   font-size: 0.85rem;
   font-weight: 600;
 }
 
-.cyber-status-normal {
-  color: var(--primary-color);
+.cyber-status-good {
+  color: #00b8d4;
   font-size: 0.85rem;
   font-weight: 600;
 }
 
-.cyber-status-slow {
-  color: var(--warning-color);
+.cyber-status-poor {
+  color: #ffcc00;
   font-size: 0.85rem;
   font-weight: 600;
 }
 
-/* 配置指南 */
 .cyber-config-instructions {
   margin-bottom: 1rem;
 }
@@ -444,7 +436,7 @@ const getLinuxConfig = (mirrorUrl) => {
   border: 1px solid rgba(127, 140, 141, 0.3);
   border-radius: 6px;
   padding: 1rem;
-  color: #7f8c8d;
+  color鬀: #7f8c8d;
   display: flex;
   align-items: center;
 }
@@ -472,6 +464,7 @@ const getLinuxConfig = (mirrorUrl) => {
   border: 1px solid var(--border-color);
   word-break: break-all;
 }
+
 .cyber-config-code {
   background: #f5f5f5;
   border: 1px solid var(--border-color);
@@ -487,37 +480,16 @@ const getLinuxConfig = (mirrorUrl) => {
   white-space: pre-wrap;
   word-break: break-word;
   font-family: 'Courier New', monospace;
-  color: #002FA7; /* 克兰因蓝标准色值 */
+  color: #002FA7;
   line-height: 1.5;
-  /* 可选：增加文字阴影增强视觉效果 */
   text-shadow: 0 0 2px rgba(0, 47, 167, 0.3);
 }
-
-/* .cyber-config-code {
-  background: #f5f5f5;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  padding: 1rem;
-  margin-bottom: 1.5rem;
-  position: relative;
-  overflow: hidden;
-}
-
-.cyber-config-code pre {
-  margin: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-family: 'Courier New', monospace;
-  color: #e0e0ff;
-  line-height: 1.5;
-} */
 
 .cyber-actions {
   display: flex;
   justify-content: flex-end;
 }
 
-/* 响应式调整 */
 @media (max-width: 768px) {
   .cyber-os-options {
     flex-direction: column;

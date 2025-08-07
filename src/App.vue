@@ -541,12 +541,12 @@ onUnmounted(() => {
 }
 
 .config-button:hover {
-  /* box-shadow: 0 0 12px rgba(150, 50, 255, 0.4) !important; */
+  box-shadow: 0 0 12px rgba(150, 50, 255, 0.4) !important;
   border-color: #4a3a6a !important;
 }
 
 .config-active {
-  /* background: linear-gradient(180deg, #3a1a4a 0%, #25102a 100%) !important; */
+  background: linear-gradient(180deg, #3a1a4a 0%, #25102a 100%) !important;
   border-color: #5a2a5a !important;
   box-shadow: 0 0 8px rgba(255, 50, 255, 0.3) !important;
 }
