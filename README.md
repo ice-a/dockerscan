@@ -124,5 +124,5 @@ docker run -d -p 8080:80 --name dockerscan-app dockerscan
 
 如有任何问题或建议，请通过以下方式联系我们：
 
-- 电子邮件: your.email@example.com
-- GitHub Issues: [提交问题](https://github.com/yourusername/dev_docker/issues)
+- 电子邮件: 1943158197@qq.com
+- GitHub Issues: [提交问题](https://github.com/ice-a/dockerscan/issues)
