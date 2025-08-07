@@ -1,6 +1,12 @@
 // Docker 镜像加速服务配置
 const dockerServices = [
     {
+        name: '木子',
+        url: 'https://docker.020417.xyz',
+        provider: '木子',
+        description: '木子 提供的 Docker 镜像加速服务'
+    },
+    {
         name: 'registry',
         url: 'https://registry.cyou',
         provider: 'registry',
@@ -180,7 +186,7 @@ const dockerServices = [
     {
         name: '毫秒镜像',
         url: 'https://docker.1ms.run',
-        provider: '木雷坞',
+        provider: '毫秒镜像',
         description: '毫秒镜像 CloudFlare 加速'
     },
     {
