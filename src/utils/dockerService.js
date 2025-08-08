@@ -7,8 +7,7 @@ const RESPONSE_TIME_THRESHOLD = {
   POOR: 8000
 };
 
-// 可接受的状态码，视为服务可用
-const ACCEPTABLE_STATUSES = [200, 401, 403, 429];
+// 响应时间阈值（毫秒）
 
 /**
  * 检测Docker镜像地址是否可用
@@ -37,7 +36,7 @@ export const checkDockerMirror = async (url) => {
       };
     }
 
-    // 使用代理路径
+    // 使用代理路径访问 /v2 端点
     const apiUrl = `/api/v2/`;
     const response = await axios.get(apiUrl, {
       timeout: RESPONSE_TIME_THRESHOLD.POOR,
@@ -57,8 +56,13 @@ export const checkDockerMirror = async (url) => {
       performance = 'good';
     }
 
-    if (ACCEPTABLE_STATUSES.includes(response.status)) {
-      const isEmptyResponse = !response.data || (typeof response.data === 'object' && Object.keys(response.data).length === 0);
+    // 简化的检测逻辑：只要有返回就认为可用
+    if (response.status >= 200 && response.status < 500) {
+      // 检查响应是否为空
+      const isEmptyResponse = !response.data || 
+        (typeof response.data === 'object' && Object.keys(response.data).length === 0) ||
+        (typeof response.data === 'string' && response.data.trim() === '');
+      
       if (isEmptyResponse) {
         return {
           success: false,
@@ -68,59 +72,44 @@ export const checkDockerMirror = async (url) => {
         };
       }
 
-      // 尝试访问常用镜像的manifest
-      try {
-        const testImage = `/api/v2/library/hello-world/manifests/latest`;
-        const manifestResponse = await axios.get(testImage, {
-          timeout: RESPONSE_TIME_THRESHOLD.GOOD,
-          headers: {
-            'Accept': 'application/vnd.docker.distribution.manifest.v2+json',
-            'X-Mirror-Url': normalizedUrl,
-          },
-        });
+      // 有返回且不为空，认为可用
+      let message = `镜像服务可用（${performance}）`;
+      
+      // 特殊状态码处理
+      if (response.status === 401) {
+        message = `镜像服务需要认证但可用（${performance}，状态码: 401）`;
+      } else if (response.status === 403) {
+        message = `镜像服务需要认证但可用（${performance}，状态码: 403）`;
+      } else if (response.status === 429) {
+        message = `镜像服务限流但可能可用（${performance}，状态码: 429）`;
+      }
 
-        const isManifestEmpty = !manifestResponse.data || (typeof manifestResponse.data === 'object' && Object.keys(manifestResponse.data).length === 0);
-        const isAvailable = ACCEPTABLE_STATUSES.includes(manifestResponse.status) &&
-                          !isManifestEmpty &&
-                          responseTime <= RESPONSE_TIME_THRESHOLD.POOR;
-
-        let message = isAvailable
-          ? `镜像服务可用，可成功获取镜像元数据（${performance}）`
-          : isManifestEmpty
-            ? '镜像元数据返回空响应，服务不可用'
-            : `状态码: ${manifestResponse.status}, 响应时间过长或无法获取镜像元数据`;
-
-        if (response.status === 403 || manifestResponse.status === 403) {
-          message = `镜像服务需要认证但可用（${performance}，状态码: ${response.status || manifestResponse.status}）`;
-        } else if (response.status === 429 || manifestResponse.status === 429) {
-          message = `镜像服务限流但可能可用（${performance}，状态码: ${response.status || manifestResponse.status}）`;
+      return {
+        success: true,
+        message,
+        responseTime,
+        performance,
+      };
+    } else {
+      // 检查是否是代理返回的错误响应
+      if (response.status === 500 && response.data) {
+        const errorData = response.data;
+        let message = `Registry API不可用，状态码: ${response.status}`;
+        
+        if (errorData.code === 'ENOTFOUND') {
+          message = `DNS解析失败: ${url}`;
+        } else if (errorData.message) {
+          message = `代理错误: ${errorData.message}`;
         }
-
-        return {
-          success: isAvailable || response.status === 403 || manifestResponse.status === 403,
-          message,
-          responseTime,
-          performance,
-        };
-      } catch (manifestError) {
-        let message = `无法获取测试镜像元数据: ${manifestError.message}`;
-        if (response.status === 403) {
-          message = `镜像服务需要认证但可用（${performance}，状态码: 403）`;
-          return {
-            success: true, // Treat 403 as usable even if manifest check fails
-            message,
-            responseTime,
-            performance,
-          };
-        }
+        
         return {
           success: false,
           message,
           responseTime,
-          performance,
+          performance: 'failed',
         };
       }
-    } else {
+      
       return {
         success: false,
         message: `Registry API不可用，状态码: ${response.status}`,
@@ -131,11 +120,29 @@ export const checkDockerMirror = async (url) => {
   } catch (error) {
     const responseTime = Date.now() - startTime;
     let message = `连接失败: ${error.message}`;
-    if (error.code === 'ENOTFOUND') {
+    
+    // 处理代理返回的错误响应
+    if (error.response) {
+      const errorData = error.response.data;
+      if (errorData && errorData.code === 'ENOTFOUND') {
+        message = `DNS解析失败: ${url}`;
+      } else if (errorData && errorData.message) {
+        message = `代理错误: ${errorData.message}`;
+      } else {
+        message = `HTTP错误: ${error.response.status} - ${error.response.statusText}`;
+      }
+    } else if (error.code === 'ENOTFOUND') {
       message = `DNS解析失败: ${url}`;
     } else if (error.code === 'ECONNRESET') {
       message = `连接被重置: ${url}`;
+    } else if (error.code === 'ECONNREFUSED') {
+      message = `连接被拒绝: ${url}`;
+    } else if (error.code === 'ETIMEDOUT') {
+      message = `连接超时: ${url}`;
+    } else if (error.message && error.message.includes('Couldn\'t resolve host')) {
+      message = `DNS解析失败: ${url}`;
     }
+    
     return {
       success: false,
       message,

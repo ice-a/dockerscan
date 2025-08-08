@@ -38,11 +38,31 @@ export default defineConfig({
           proxy.on('error', (err, req, res) => {
             const mirrorUrl = req.headers['x-mirror-url'] || 'unknown';
             console.error(`Proxy error for ${mirrorUrl}:`, err);
+            
+            // 根据错误类型返回更具体的错误信息
+            let errorCode = 'UNKNOWN';
+            let errorMessage = err.message;
+            
+            if (err.code === 'ENOTFOUND') {
+              errorCode = 'ENOTFOUND';
+              errorMessage = `Couldn't resolve host: ${mirrorUrl}`;
+            } else if (err.code === 'ECONNREFUSED') {
+              errorCode = 'ECONNREFUSED';
+              errorMessage = `Connection refused: ${mirrorUrl}`;
+            } else if (err.code === 'ETIMEDOUT') {
+              errorCode = 'ETIMEDOUT';
+              errorMessage = `Connection timeout: ${mirrorUrl}`;
+            } else if (err.code === 'ECONNRESET') {
+              errorCode = 'ECONNRESET';
+              errorMessage = `Connection reset: ${mirrorUrl}`;
+            }
+            
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
               error: 'Proxy error',
-              message: err.message,
-              code: err.code || 'UNKNOWN',
+              message: errorMessage,
+              code: errorCode,
+              url: mirrorUrl,
             }));
           });
         },
